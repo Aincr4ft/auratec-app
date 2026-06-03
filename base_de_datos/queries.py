@@ -220,7 +220,7 @@ def listar_ordenes_usuario(
 
     sql = """
         SELECT o.id, o.total, o.estado,
-               DATE_FORMAT(o.fecha, '%%d/%%m/%%Y %%H:%%i') AS fecha_fmt,
+               o.fecha,
                COUNT(d.id) AS items
         FROM ordenes o
         LEFT JOIN detalle_orden d ON d.orden_id = o.id
@@ -243,9 +243,13 @@ def listar_ordenes_usuario(
     try:
         cursor = conn.cursor()
         cursor.execute(sql, tuple(params))
+        def _fmt(f):
+            if f is None: return ""
+            if hasattr(f, "strftime"): return f.strftime("%d/%m/%Y %H:%M")
+            return str(f)
         return [
             {"id": r[0], "total": float(r[1]), "estado": r[2],
-             "fecha": r[3], "items": r[4]}
+             "fecha": _fmt(r[3]), "items": r[4]}
             for r in cursor.fetchall()
         ]
     finally:
@@ -271,7 +275,7 @@ def listar_todas_ordenes(
 
     sql = """
         SELECT o.id, o.total, o.estado,
-               DATE_FORMAT(o.fecha, '%%d/%%m/%%Y %%H:%%i') AS fecha_fmt,
+               o.fecha,
                COUNT(d.id) AS items,
                u.nombre, u.usuario
         FROM ordenes o
@@ -299,9 +303,13 @@ def listar_todas_ordenes(
     try:
         cursor = conn.cursor()
         cursor.execute(sql, tuple(params))
+        def _fmt(f):
+            if f is None: return ""
+            if hasattr(f, "strftime"): return f.strftime("%d/%m/%Y %H:%M")
+            return str(f)
         return [
             {"id": r[0], "total": float(r[1]), "estado": r[2],
-             "fecha": r[3], "items": r[4],
+             "fecha": _fmt(r[3]), "items": r[4],
              "usuario_nombre": r[5], "usuario_login": r[6]}
             for r in cursor.fetchall()
         ]
@@ -324,7 +332,7 @@ def obtener_detalle_orden(orden_id: int) -> dict:
         cursor.execute(
             """
             SELECT o.id, o.usuario_id, u.nombre, u.usuario, o.total, o.estado,
-                   DATE_FORMAT(o.fecha, '%%d/%%m/%%Y %%H:%%i') AS fecha_fmt
+                   o.fecha
             FROM ordenes o
             JOIN usuarios u ON u.id = o.usuario_id
             WHERE o.id = %s
@@ -352,7 +360,8 @@ def obtener_detalle_orden(orden_id: int) -> dict:
         return {
             "id": cab[0], "usuario_id": cab[1],
             "usuario_nombre": cab[2], "usuario_login": cab[3],
-            "total": float(cab[4]), "estado": cab[5], "fecha": cab[6],
+            "total": float(cab[4]), "estado": cab[5],
+            "fecha": cab[6].strftime("%d/%m/%Y %H:%M") if hasattr(cab[6], "strftime") else str(cab[6] or ""),
             "items": items,
         }
     finally:
