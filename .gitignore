@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Base de datos local (no subir al repo)
+base_de_datos/auratec.db
+
+# PyInstaller
+dist/
+build/
+*.spec
+
+# Entornos virtuales
+venv/
+.env/
+env/
+
+# IDEs
+.vscode/
+.idea/
