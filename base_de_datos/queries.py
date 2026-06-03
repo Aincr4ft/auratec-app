@@ -13,6 +13,15 @@ def _parse_fecha(texto: str):
         return None
 
 
+def _fmt_fecha(f) -> str:
+    """Formatea un datetime de MySQL a string legible."""
+    if f is None:
+        return ""
+    if hasattr(f, "strftime"):
+        return f.strftime("%d/%m/%Y %H:%M")
+    return str(f)
+
+
 # ── USUARIOS ──────────────────────────────────────────────────────────────────
 
 def autenticar_usuario(usuario: str, password_hash: str):
@@ -49,6 +58,76 @@ def listar_usuarios() -> deque:
     return cola
 
 
+def crear_usuario(nombre: str, usuario: str, contrasena: str, rol: str = "user"):
+    """Crea un nuevo usuario con contraseña hasheada. Lanza ValueError si el username ya existe."""
+    import hashlib
+    if not nombre.strip() or not usuario.strip() or not contrasena:
+        raise ValueError("Todos los campos son obligatorios.")
+    conn = obtener_conexion()
+    if not conn:
+        raise ConnectionError("Sin conexión a la base de datos.")
+    hash_pass = hashlib.sha256(contrasena.encode("utf-8")).hexdigest()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO usuarios (nombre, usuario, password_hash, rol) VALUES (%s, %s, %s, %s)",
+            (nombre.strip(), usuario.strip(), hash_pass, rol)
+        )
+        conn.commit()
+    except Exception as e:
+        raise ValueError(f"No se pudo crear el usuario: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def editar_usuario(usuario_id: int, nombre: str, usuario: str, rol: str, contrasena: str = None):
+    """Actualiza datos de un usuario. Si contrasena no es None, también la cambia."""
+    import hashlib
+    if not nombre.strip() or not usuario.strip():
+        raise ValueError("Nombre y usuario son obligatorios.")
+    conn = obtener_conexion()
+    if not conn:
+        raise ConnectionError("Sin conexión a la base de datos.")
+    try:
+        cursor = conn.cursor()
+        if contrasena:
+            hash_pass = hashlib.sha256(contrasena.encode("utf-8")).hexdigest()
+            cursor.execute(
+                "UPDATE usuarios SET nombre=%s, usuario=%s, rol=%s, password_hash=%s WHERE id=%s",
+                (nombre.strip(), usuario.strip(), rol, hash_pass, usuario_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE usuarios SET nombre=%s, usuario=%s, rol=%s WHERE id=%s",
+                (nombre.strip(), usuario.strip(), rol, usuario_id)
+            )
+        if cursor.rowcount == 0:
+            raise ValueError(f"No se encontró usuario con ID {usuario_id}.")
+        conn.commit()
+    except Exception as e:
+        raise ValueError(f"Error al editar usuario: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def eliminar_usuario(usuario_id: int):
+    """Elimina un usuario por ID. Lanza ValueError si no existe."""
+    conn = obtener_conexion()
+    if not conn:
+        raise ConnectionError("Sin conexión a la base de datos.")
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM usuarios WHERE id = %s", (usuario_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"No se encontró un usuario con ID {usuario_id}.")
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
 
 def listar_productos(filtro: str = None) -> deque:
@@ -77,13 +156,21 @@ def listar_productos(filtro: str = None) -> deque:
 
 
 def insertar_producto(datos: dict):
+    if not datos.get("nombre", "").strip():
+        raise ValueError("El nombre del producto es obligatorio.")
+    if not datos.get("categoria", "").strip():
+        raise ValueError("La categoría es obligatoria.")
+    if datos.get("precio", -1) < 0:
+        raise ValueError("El precio debe ser mayor o igual a 0.")
+    if datos.get("stock", -1) < 0:
+        raise ValueError("El stock debe ser mayor o igual a 0.")
     conn = obtener_conexion()
     if not conn:
-        return
+        raise ConnectionError("Sin conexión a la base de datos.")
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO productos (nombre, categoria, precio, stock) VALUES (%s,%s,%s,%s)",
-        (datos["nombre"], datos["categoria"], datos["precio"], datos["stock"])
+        (datos["nombre"].strip(), datos["categoria"].strip(), datos["precio"], datos["stock"])
     )
     conn.commit()
     cursor.close()
@@ -91,11 +178,30 @@ def insertar_producto(datos: dict):
 
 
 def actualizar_precio(producto_id: int, nuevo_precio: float):
+    if nuevo_precio < 0:
+        raise ValueError("El precio no puede ser negativo.")
     conn = obtener_conexion()
     if not conn:
-        return
+        raise ConnectionError("Sin conexión a la base de datos.")
     cursor = conn.cursor()
     cursor.execute("UPDATE productos SET precio=%s WHERE id=%s", (nuevo_precio, producto_id))
+    if cursor.rowcount == 0:
+        raise ValueError(f"No se encontró producto con ID {producto_id}.")
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def actualizar_stock(producto_id: int, nuevo_stock: int):
+    if nuevo_stock < 0:
+        raise ValueError("El stock no puede ser negativo.")
+    conn = obtener_conexion()
+    if not conn:
+        raise ConnectionError("Sin conexión a la base de datos.")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE productos SET stock=%s WHERE id=%s", (nuevo_stock, producto_id))
+    if cursor.rowcount == 0:
+        raise ValueError(f"No se encontró producto con ID {producto_id}.")
     conn.commit()
     cursor.close()
     conn.close()
@@ -104,9 +210,11 @@ def actualizar_precio(producto_id: int, nuevo_precio: float):
 def eliminar_producto(producto_id: int):
     conn = obtener_conexion()
     if not conn:
-        return
+        raise ConnectionError("Sin conexión a la base de datos.")
     cursor = conn.cursor()
     cursor.execute("DELETE FROM productos WHERE id=%s", (producto_id,))
+    if cursor.rowcount == 0:
+        raise ValueError(f"No se encontró producto con ID {producto_id}.")
     conn.commit()
     cursor.close()
     conn.close()
@@ -135,14 +243,13 @@ def crear_orden(usuario_id: int, items_carrito: dict) -> dict:
 
             total = 0.0
             items_ok = []
-            detalles = []  # lo que vamos a insertar en detalle_orden
+            detalles = []
 
             for pid, item in items_carrito.items():
                 cantidad = int(item["cantidad"])
                 if cantidad <= 0:
                     raise ValueError("La cantidad debe ser mayor a cero.")
 
-                # Guarda atómica: solo descuenta si hay stock suficiente
                 cursor.execute(
                     "UPDATE productos SET stock = stock - %s "
                     "WHERE id = %s AND stock >= %s",
@@ -159,7 +266,6 @@ def crear_orden(usuario_id: int, items_carrito: dict) -> dict:
                         f'Stock insuficiente para "{fila[0]}". Disponible: {fila[1]}.'
                     )
 
-                # Snapshot del nombre y precio al momento de la venta
                 cursor.execute(
                     "SELECT nombre, precio FROM productos WHERE id = %s", (pid,)
                 )
@@ -200,16 +306,52 @@ def crear_orden(usuario_id: int, items_carrito: dict) -> dict:
         conn.close()
 
 
+def cancelar_orden(orden_id: int) -> None:
+    """Cancela una orden y devuelve el stock de cada ítem."""
+    conn = obtener_conexion()
+    if not conn:
+        raise ConnectionError("Sin conexión a la base de datos.")
+    try:
+        cursor = conn.cursor()
+        conn.start_transaction()
+
+        cursor.execute("SELECT estado FROM ordenes WHERE id=%s", (orden_id,))
+        fila = cursor.fetchone()
+        if not fila:
+            raise ValueError(f"Orden #{orden_id} no encontrada.")
+        if fila[0] == "cancelada":
+            raise ValueError(f"La orden #{orden_id} ya está cancelada.")
+
+        # Devolver stock
+        cursor.execute(
+            "SELECT producto_id, cantidad FROM detalle_orden WHERE orden_id=%s", (orden_id,)
+        )
+        for pid, cant in cursor.fetchall():
+            cursor.execute(
+                "UPDATE productos SET stock = stock + %s WHERE id = %s", (cant, pid)
+            )
+
+        cursor.execute(
+            "UPDATE ordenes SET estado='cancelada' WHERE id=%s", (orden_id,)
+        )
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def listar_ordenes_usuario(
     usuario_id: int,
     filtro_producto: str = None,
     fecha_desde: str = None,
     fecha_hasta: str = None,
 ) -> list:
-    """
-    Lista cabeceras de órdenes del usuario, con #ítems y fecha formateada.
-    Filtros opcionales: filtro_producto (LIKE), fecha_desde/fecha_hasta (dd/mm/aaaa).
-    """
     conn = obtener_conexion()
     if not conn:
         return []
@@ -243,13 +385,9 @@ def listar_ordenes_usuario(
     try:
         cursor = conn.cursor()
         cursor.execute(sql, tuple(params))
-        def _fmt(f):
-            if f is None: return ""
-            if hasattr(f, "strftime"): return f.strftime("%d/%m/%Y %H:%M")
-            return str(f)
         return [
             {"id": r[0], "total": float(r[1]), "estado": r[2],
-             "fecha": _fmt(r[3]), "items": r[4]}
+             "fecha": _fmt_fecha(r[3]), "items": r[4]}
             for r in cursor.fetchall()
         ]
     finally:
@@ -263,7 +401,6 @@ def listar_todas_ordenes(
     fecha_desde: str = None,
     fecha_hasta: str = None,
 ) -> list:
-    """Igual que listar_ordenes_usuario pero para el admin, con nombre del usuario."""
     conn = obtener_conexion()
     if not conn:
         return []
@@ -303,13 +440,9 @@ def listar_todas_ordenes(
     try:
         cursor = conn.cursor()
         cursor.execute(sql, tuple(params))
-        def _fmt(f):
-            if f is None: return ""
-            if hasattr(f, "strftime"): return f.strftime("%d/%m/%Y %H:%M")
-            return str(f)
         return [
             {"id": r[0], "total": float(r[1]), "estado": r[2],
-             "fecha": _fmt(r[3]), "items": r[4],
+             "fecha": _fmt_fecha(r[3]), "items": r[4],
              "usuario_nombre": r[5], "usuario_login": r[6]}
             for r in cursor.fetchall()
         ]
@@ -319,11 +452,6 @@ def listar_todas_ordenes(
 
 
 def obtener_detalle_orden(orden_id: int) -> dict:
-    """Retorna dict con la cabecera de la orden y la lista de ítems.
-    Cabecera: id, usuario_id, usuario_nombre, usuario_login, total, estado, fecha.
-    Items: [{producto_id, producto_nombre, precio_unitario, cantidad, subtotal}, ...]
-    Devuelve None si la orden no existe.
-    """
     conn = obtener_conexion()
     if not conn:
         return None
@@ -331,8 +459,7 @@ def obtener_detalle_orden(orden_id: int) -> dict:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT o.id, o.usuario_id, u.nombre, u.usuario, o.total, o.estado,
-                   o.fecha
+            SELECT o.id, o.usuario_id, u.nombre, u.usuario, o.total, o.estado, o.fecha
             FROM ordenes o
             JOIN usuarios u ON u.id = o.usuario_id
             WHERE o.id = %s
@@ -360,8 +487,7 @@ def obtener_detalle_orden(orden_id: int) -> dict:
         return {
             "id": cab[0], "usuario_id": cab[1],
             "usuario_nombre": cab[2], "usuario_login": cab[3],
-            "total": float(cab[4]), "estado": cab[5],
-            "fecha": cab[6].strftime("%d/%m/%Y %H:%M") if hasattr(cab[6], "strftime") else str(cab[6] or ""),
+            "total": float(cab[4]), "estado": cab[5], "fecha": _fmt_fecha(cab[6]),
             "items": items,
         }
     finally:
@@ -370,12 +496,12 @@ def obtener_detalle_orden(orden_id: int) -> dict:
 
 
 def resumen_ventas() -> dict:
-    """Métricas para el dashboard del admin (ahora basadas en ordenes)."""
+    """Métricas para el dashboard del admin."""
     conn = obtener_conexion()
     if not conn:
         return {"total_ventas": 0, "ingresos": 0.0, "productos": 0, "usuarios": 0}
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*), COALESCE(SUM(total), 0) FROM ordenes")
+    cursor.execute("SELECT COUNT(*), COALESCE(SUM(total), 0) FROM ordenes WHERE estado='completada'")
     fila = cursor.fetchone()
     cursor.execute("SELECT COUNT(*) FROM productos")
     productos = cursor.fetchone()
@@ -389,42 +515,3 @@ def resumen_ventas() -> dict:
         "productos":    productos[0],
         "usuarios":     usuarios[0],
     }
-
-
-# ── GESTIÓN DE USUARIOS (admin) ───────────────────────────────────────────────
-
-def crear_usuario(nombre: str, usuario: str, contrasena: str, rol: str = "user"):
-    """Crea un nuevo usuario con contraseña hasheada. Lanza ValueError si el username ya existe."""
-    import hashlib
-    conn = obtener_conexion()
-    if not conn:
-        raise ConnectionError("Sin conexión a la base de datos.")
-    hash_pass = hashlib.sha256(contrasena.encode("utf-8")).hexdigest()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO usuarios (nombre, usuario, password_hash, rol) VALUES (%s, %s, %s, %s)",
-            (nombre, usuario, hash_pass, rol)
-        )
-        conn.commit()
-    except Exception as e:
-        raise ValueError(f"No se pudo crear el usuario: {e}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-def eliminar_usuario(usuario_id: int):
-    """Elimina un usuario por ID. Lanza ValueError si no existe."""
-    conn = obtener_conexion()
-    if not conn:
-        raise ConnectionError("Sin conexión a la base de datos.")
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM usuarios WHERE id = %s", (usuario_id,))
-        if cursor.rowcount == 0:
-            raise ValueError(f"No se encontró un usuario con ID {usuario_id}.")
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()

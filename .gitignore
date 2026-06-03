@@ -2,8 +2,13 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.bak
 
-# Base de datos local (no subir al repo)
+# Variables de entorno (credenciales)
+.env
+.env.*
+
+# Base de datos local
 base_de_datos/auratec.db
 
 # PyInstaller
