@@ -499,19 +499,98 @@ def resumen_ventas() -> dict:
     """Métricas para el dashboard del admin."""
     conn = obtener_conexion()
     if not conn:
-        return {"total_ventas": 0, "ingresos": 0.0, "productos": 0, "usuarios": 0}
+        return {"total_ventas": 0, "ingresos": 0.0, "productos": 0, "usuarios": 0, "ticket_promedio": 0.0, "bajo_stock": 0}
     cursor = conn.cursor()
+    # Totales generales
     cursor.execute("SELECT COUNT(*), COALESCE(SUM(total), 0) FROM ordenes WHERE estado='completada'")
     fila = cursor.fetchone()
+    total_ventas = fila[0] or 0
+    ingresos = round(float(fila[1] or 0), 2)
+    
+    # Productos y Usuarios
     cursor.execute("SELECT COUNT(*) FROM productos")
-    productos = cursor.fetchone()
+    productos = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM usuarios WHERE rol='user'")
-    usuarios = cursor.fetchone()
+    usuarios = cursor.fetchone()[0]
+    
+    # Alerta Bajo Stock (menos de 5 unidades)
+    cursor.execute("SELECT COUNT(*) FROM productos WHERE stock < 5")
+    bajo_stock = cursor.fetchone()[0]
+    
+    # Ticket Promedio
+    ticket_promedio = round(ingresos / total_ventas, 2) if total_ventas > 0 else 0.0
+    
     cursor.close()
     conn.close()
     return {
-        "total_ventas": fila[0] or 0,
-        "ingresos":     round(float(fila[1] or 0), 2),
-        "productos":    productos[0],
-        "usuarios":     usuarios[0],
+        "total_ventas": total_ventas,
+        "ingresos":     ingresos,
+        "productos":    productos,
+        "usuarios":     usuarios,
+        "ticket_promedio": ticket_promedio,
+        "bajo_stock":   bajo_stock
     }
+
+
+def estadisticas_ventas_7_dias() -> list:
+    """Retorna lista de dicts con ventas diarias de los últimos 7 días."""
+    conn = obtener_conexion()
+    if not conn:
+        return []
+    cursor = conn.cursor()
+    sql = """
+        SELECT DATE(fecha) as dia, SUM(total) as total
+        FROM ordenes
+        WHERE estado='completada' AND fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        GROUP BY dia
+        ORDER BY dia ASC
+    """
+    cursor.execute(sql)
+    resultados = [{"dia": r[0].strftime("%d/%m"), "total": float(r[1])} for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return resultados
+
+
+def estadisticas_por_categoria() -> list:
+    """Retorna ventas totales agrupadas por categoría."""
+    conn = obtener_conexion()
+    if not conn:
+        return []
+    cursor = conn.cursor()
+    sql = """
+        SELECT p.categoria, SUM(d.subtotal) as total
+        FROM detalle_orden d
+        JOIN productos p ON p.id = d.producto_id
+        JOIN ordenes o ON o.id = d.orden_id
+        WHERE o.estado = 'completada'
+        GROUP BY p.categoria
+        ORDER BY total DESC
+    """
+    cursor.execute(sql)
+    resultados = [{"categoria": r[0], "total": float(r[1])} for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return resultados
+
+
+def productos_mas_vendidos(limit=5) -> list:
+    """Retorna los N productos más vendidos por cantidad."""
+    conn = obtener_conexion()
+    if not conn:
+        return []
+    cursor = conn.cursor()
+    sql = """
+        SELECT producto_nombre, SUM(cantidad) as total_cant
+        FROM detalle_orden d
+        JOIN ordenes o ON o.id = d.orden_id
+        WHERE o.estado = 'completada'
+        GROUP BY producto_id, producto_nombre
+        ORDER BY total_cant DESC
+        LIMIT %s
+    """
+    cursor.execute(sql, (limit,))
+    resultados = [{"nombre": r[0], "cantidad": r[1]} for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return resultados
