@@ -8,10 +8,8 @@ from base_de_datos.queries import (
     listar_todas_ordenes, obtener_detalle_orden,
     crear_usuario, editar_usuario, eliminar_usuario,
     cancelar_orden,
-    estadisticas_ventas_7_dias, estadisticas_por_categoria, productos_mas_vendidos
 )
 from visualizaciones._widgets import mostrar_detalle_orden
-from visualizaciones.graficos import crear_grafico_ventas, crear_grafico_categorias
 
 REFRESH_MS = 120_000
 
@@ -116,15 +114,6 @@ class VentanaAdmin(ctk.CTk):
         tab_bar.pack(fill="x")
         tab_bar.pack_propagate(False)
         self.btn_tabs = {}
-<<<<<<< HEAD
-        for texto, cmd in [("📊 Dashboard", self._mostrar_tab_stats),
-                           ("📦 Productos", self._mostrar_tab_productos),
-                           ("🧾 Órdenes",   self._mostrar_tab_ordenes),
-                           ("👥 Usuarios",  self._mostrar_tab_usuarios)]:
-            b = ctk.CTkButton(tab_bar, text=texto, width=150,
-                              fg_color="#555", hover_color="#333", command=cmd)
-            b.pack(side="left", padx=4)
-=======
         for texto, cmd in [("📦  Productos", self._mostrar_tab_productos),
                            ("🧾  Órdenes",   self._mostrar_tab_ordenes),
                            ("👥  Usuarios",  self._mostrar_tab_usuarios)]:
@@ -133,17 +122,15 @@ class VentanaAdmin(ctk.CTk):
                               text_color=C_MUTED, font=FONT_SMALL,
                               corner_radius=0, command=cmd)
             b.pack(side="left", padx=2)
->>>>>>> d871b64 (mejoras UI: panel admin y usuario)
             self.btn_tabs[texto] = b
 
         self.frame_tab = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_tab.pack(fill="both", expand=True, padx=20, pady=12)
 
-        self._construir_tab_stats()
         self._construir_tab_productos()
         self._construir_tab_ordenes()
         self._construir_tab_usuarios()
-        self._mostrar_tab_stats()
+        self._mostrar_tab_productos()
 
     def _activar_tab(self, nombre: str):
         for k, b in self.btn_tabs.items():
@@ -225,71 +212,10 @@ class VentanaAdmin(ctk.CTk):
         self._cargar_productos(filtro)
 
     def _mostrar_tab_productos(self):
-        self.tab_stats.pack_forget()
         self.tab_ordenes.pack_forget()
         self.tab_usuarios.pack_forget()
         self.tab_productos.pack(fill="both", expand=True)
         self._activar_tab("📦  Productos")
-
-    def _mostrar_tab_stats(self):
-        self.tab_productos.pack_forget()
-        self.tab_ordenes.pack_forget()
-        self.tab_usuarios.pack_forget()
-        self.tab_stats.pack(fill="both", expand=True)
-        self._activar_tab("📊 Dashboard")
-        self._actualizar_graficos()
-
-    def _construir_tab_stats(self):
-        self.tab_stats = ctk.CTkFrame(self.frame_tab, fg_color="transparent")
-        
-        # Contenedor de gráficos
-        self.frame_charts = ctk.CTkFrame(self.tab_stats, fg_color="transparent")
-        self.frame_charts.pack(fill="both", expand=True)
-        
-        self.frame_charts.grid_columnconfigure(0, weight=1)
-        self.frame_charts.grid_columnconfigure(1, weight=1)
-        self.frame_charts.grid_rowconfigure(0, weight=1)
-        
-        self.chart_ventas_container = ctk.CTkFrame(self.frame_charts, fg_color="#2b2b2b", corner_radius=12)
-        self.chart_ventas_container.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        
-        self.chart_cat_container = ctk.CTkFrame(self.frame_charts, fg_color="#2b2b2b", corner_radius=12)
-        self.chart_cat_container.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-
-        # Ranking de productos
-        self.frame_ranking = ctk.CTkFrame(self.tab_stats, fg_color="#1a1a2e", corner_radius=12, height=150)
-        self.frame_ranking.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(self.frame_ranking, text="🏆 Top 5 Productos más Vendidos", font=("Arial", 14, "bold")).pack(pady=10)
-        self.ranking_container = ctk.CTkFrame(self.frame_ranking, fg_color="transparent")
-        self.ranking_container.pack(fill="x", padx=20, pady=(0, 15))
-
-    def _actualizar_graficos(self):
-        # Limpiar contenedores
-        for w in self.chart_ventas_container.winfo_children(): w.destroy()
-        for w in self.chart_cat_container.winfo_children(): w.destroy()
-        for w in self.ranking_container.winfo_children(): w.destroy()
-        
-        # Obtener datos
-        datos_ventas = estadisticas_ventas_7_dias()
-        datos_cat = estadisticas_por_categoria()
-        top_productos = productos_mas_vendidos()
-        
-        if datos_ventas:
-            crear_grafico_ventas(self.chart_ventas_container, datos_ventas).pack(fill="both", expand=True, padx=5, pady=5)
-        else:
-            ctk.CTkLabel(self.chart_ventas_container, text="No hay datos de ventas recientes").pack(expand=True)
-            
-        if datos_cat:
-            crear_grafico_categorias(self.chart_cat_container, datos_cat).pack(fill="both", expand=True, padx=5, pady=5)
-        else:
-            ctk.CTkLabel(self.chart_cat_container, text="No hay datos por categoría").pack(expand=True)
-            
-        # Actualizar ranking
-        for i, p in enumerate(top_productos):
-            row = ctk.CTkFrame(self.ranking_container, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            ctk.CTkLabel(row, text=f"{i+1}. {p['nombre']}", font=("Arial", 12)).pack(side="left")
-            ctk.CTkLabel(row, text=f"{p['cantidad']} unidades", font=("Arial", 12, "bold"), text_color="#16a085").pack(side="right")
 
     def _buscar_productos(self):
         filtro = self.prod_entry_buscar.get().strip()
@@ -507,12 +433,6 @@ class VentanaAdmin(ctk.CTk):
         }
         for titulo, valor in mapeo.items():
             self.metricas_labels[titulo].configure(text=valor)
-        
-        # Alertas de stock
-        if datos.get("bajo_stock", 0) > 0:
-            self.metricas_labels["📦 Productos"].configure(text_color="#e74c3c")
-        else:
-            self.metricas_labels["📦 Productos"].configure(text_color="white")
 
     def _programar_refresh(self):
         self._actualizar_metricas()
