@@ -1,25 +1,38 @@
 import os
 import hashlib
 import mysql.connector
+from mysql.connector.pooling import MySQLConnectionPool
 from dotenv import load_dotenv
 
-# Cargamos las variables del archivo .env
 load_dotenv()
 
+_pool = None
 
-def obtener_conexion() -> mysql.connector.MySQLConnection:
-    """Establece y devuelve la conexión a la base de datos en Railway."""
-    try:
-        conexion = mysql.connector.connect(
+
+def obtener_pool() -> MySQLConnectionPool:
+    """Crea el pool de conexiones una sola vez y lo reutiliza."""
+    global _pool
+    if _pool is None:
+        _pool = MySQLConnectionPool(
+            pool_name="auratec_pool",
+            pool_size=5,
+            pool_reset_session=True,
             host=os.getenv("DB_HOST"),
             port=int(os.getenv("DB_PORT", 3306)),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME")
+            database=os.getenv("DB_NAME"),
+            connection_timeout=10,
         )
-        return conexion
+    return _pool
+
+
+def obtener_conexion() -> mysql.connector.MySQLConnection:
+    """Devuelve una conexión del pool. Mucho más rápido que abrir una nueva."""
+    try:
+        return obtener_pool().get_connection()
     except mysql.connector.Error as e:
-        print(f"Error al conectar a Railway: {e}")
+        print(f"Error al obtener conexión del pool: {e}")
         return None
 
 
@@ -32,7 +45,6 @@ def inicializar_bd():
 
     cursor = conn.cursor()
 
-    # Tabla de usuarios
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -43,7 +55,6 @@ def inicializar_bd():
         )
     """)
 
-    # Tabla de productos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id        INT AUTO_INCREMENT PRIMARY KEY,
@@ -54,7 +65,6 @@ def inicializar_bd():
         )
     """)
 
-    # Tabla de ventas (legacy: queda por compatibilidad con datos históricos)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ventas (
             id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -68,7 +78,6 @@ def inicializar_bd():
         )
     """)
 
-    # Cabecera de orden: agrupa los productos de una misma compra
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ordenes (
             id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -82,7 +91,6 @@ def inicializar_bd():
         )
     """)
 
-    # Detalle por producto dentro de una orden (snapshot del nombre y precio)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS detalle_orden (
             id              INT AUTO_INCREMENT PRIMARY KEY,
@@ -98,21 +106,18 @@ def inicializar_bd():
         )
     """)
 
-    # Usuario admin por defecto (si no existe)
     hash_admin = hashlib.sha256("admin123".encode()).hexdigest()
     cursor.execute("""
         INSERT IGNORE INTO usuarios (nombre, usuario, password_hash, rol)
         VALUES ('Administrador', 'admin', %s, 'admin')
     """, (hash_admin,))
 
-    # Usuario demo por defecto
     hash_user = hashlib.sha256("user123".encode()).hexdigest()
     cursor.execute("""
         INSERT IGNORE INTO usuarios (nombre, usuario, password_hash, rol)
         VALUES ('Usuario Demo', 'usuario', %s, 'user')
     """, (hash_user,))
 
-    # Productos de ejemplo si la tabla está vacía
     cursor.execute("SELECT COUNT(*) FROM productos")
     count = cursor.fetchone()[0]
     if count == 0:
